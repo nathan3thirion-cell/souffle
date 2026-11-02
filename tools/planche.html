@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planche poumons</title>
+<style>
+  body { margin: 0; background: #0d0b0a; color: #ddd; font: 13px system-ui; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px; }
+  figure { margin: 0; min-width: 0; }
+  canvas { width: 100%; aspect-ratio: 768/844; display: block; contain: size; }
+  figcaption { padding: 4px 0; }
+</style>
+<script type="module">
+  import { Lungs } from '../js/lungs.js';
+  const steps = [
+    ['Départ : 10 ans', { flesh: 0.05, tar: 0.62, oxy: 0, airway: 0, haze: 1, breathDepth: .4 }],
+    ['1 jour', { flesh: 0.25, tar: 0.54, oxy: 0.96, airway: 0.08, haze: .85, breathDepth: .45 }],
+    ['1 mois', { flesh: 0.51, tar: 0.36, oxy: 1, airway: 0.35, haze: .6, breathDepth: .7 }],
+    ['3 mois', { flesh: 0.68, tar: 0.24, oxy: 1, airway: 0.7, haze: .4, breathDepth: .85 }],
+    ['1 an', { flesh: 0.81, tar: 0.1, oxy: 1, airway: 1, haze: .2, breathDepth: 1 }],
+    ['10 ans', { flesh: 1, tar: 0, oxy: 1, airway: 1, haze: 0, breathDepth: 1 }],
+  ];
+  const one = new URLSearchParams(location.search).get('one');
+  if (one !== null) document.body.style.gridTemplateColumns = '1fr';
+  for (const [name, st] of one !== null ? [steps[+one]] : steps) {
+    const fig = document.createElement('figure');
+    const c = document.createElement('canvas');
+    const cap = document.createElement('figcaption');
+    cap.textContent = name;
+    fig.append(c, cap);
+    document.body.append(fig);
+    const l = new Lungs(c);
+    l.setState(st, { instant: true });
+    await l.init('../assets/');
+  }
+  window.ready = true;
+</script>
