@@ -18,10 +18,16 @@ test('monoxyde de carbone : quasi normal en 12 h (OMS), évacué en 24 h', () =>
   assert.ok(simulate(profile, [], T0 + 24 * HOUR).co > 0.95);
 });
 
+test('le monoxyde de carbone ne compte pas dans le pourcentage des poumons', () => {
+  const s = simulate(profile, [], T0 + 50 * HOUR);
+  assert.ok(s.co > 0.99);
+  assert.ok(s.score < 0.01, `50 h ${s.score}`);
+});
+
 test('la courbe suit les délais publiés si on ne refume plus', () => {
-  assert.ok(score([], 1) > 0.08 && score([], 1) < 0.16, `1 j ${score([], 1)}`);
-  assert.ok(score([], 30) > 0.22 && score([], 30) < 0.45, `30 j ${score([], 30)}`);
-  assert.ok(score([], 365) > 0.68 && score([], 365) < 0.86, `1 an ${score([], 365)}`);
+  assert.ok(score([], 7) > 0.02 && score([], 7) < 0.05, `7 j ${score([], 7)}`);
+  assert.ok(score([], 30) > 0.18 && score([], 30) < 0.35, `30 j ${score([], 30)}`);
+  assert.ok(score([], 365) > 0.65 && score([], 365) < 0.8, `1 an ${score([], 365)}`);
   assert.ok(score([], 3650) > 0.95, `10 ans ${score([], 3650)}`);
 });
 
@@ -99,6 +105,12 @@ test('argent : 6,25 € par jour sans fumer, 0 € si on fume comme avant', () =
   assert.ok(Math.abs(money(profile, [], at(365)).saved - 2281.25) < 1e-6);
   const ten = Array.from({ length: 10 }, (_, i) => T0 + i * HOUR);
   assert.ok(money(profile, ten, at(1)).saved < 1e-9);
+  // Le détail affiché dans l'écran Argent : 1 jour attendu = 10 clopes, 4 notées, 6 pas fumées.
+  const four = money(profile, [T0 + HOUR, T0 + 2 * HOUR, T0 + 3 * HOUR, T0 + 4 * HOUR], at(1));
+  assert.ok(Math.abs(four.expected - 10) < 1e-9);
+  assert.equal(four.smoked, 4);
+  assert.ok(Math.abs(four.notSmoked - 6) < 1e-9);
+  assert.ok(Math.abs(four.saved - 3.75) < 1e-9);
   assert.ok(Math.abs(money(profile, [], at(0)).perCig - 0.625) < 1e-9);
   assert.ok(Math.abs(money(profile, [], at(0)).burned - 22828.125) < 1e-6);
 });
@@ -115,7 +127,7 @@ test('l\'image change dès le premier jour, puis jusqu\'au bout', () => {
   const v1 = visual(simulate(profile, [], at(1)));
   const vY = visual(simulate(profile, [], at(365)));
   const v10 = visual(simulate(profile, [], at(3650)));
-  assert.ok(v1.flesh > v0.flesh + 0.12);
+  assert.ok(v1.flesh > v0.flesh + 0.1);
   assert.ok(vY.tar < v1.tar);
   assert.ok(v10.tar < 0.02 && v10.flesh > 0.95);
 });

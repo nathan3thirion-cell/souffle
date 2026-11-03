@@ -15,7 +15,8 @@ const COMPARTMENTS = {
   cils: { tau: 75, hit: 0.004 },
   cellules: { tau: 1580, hit: 0.001 },
 };
-const WEIGHTS = { co: 0.1, souffle: 0.3, cils: 0.3, cellules: 0.3 };
+// Le monoxyde de carbone reste à part : il quitte le sang en un jour et ne dit rien de la guérison des poumons.
+const LUNG_PARTS = Object.keys(COMPARTMENTS);
 // Mémoire du rythme récent de consommation, en jours.
 const RATE_MEMORY_D = 2;
 // Une faible consommation garde une grande part du risque : 1 cigarette par jour porte
@@ -29,7 +30,7 @@ function recoveryTarget(rate, perDay) {
 }
 
 function scoreOf(c) {
-  return WEIGHTS.co * c.co + WEIGHTS.souffle * c.souffle + WEIGHTS.cils * c.cils + WEIGHTS.cellules * c.cellules;
+  return LUNG_PARTS.reduce((sum, key) => sum + c[key], 0) / LUNG_PARTS.length;
 }
 
 /** État estimé à l'instant `at`, en rejouant chaque cigarette depuis le départ. */
@@ -92,8 +93,8 @@ export function simulate(profile, cigs, at) {
 export function ceilingAt(profile, perDayNow) {
   if (perDayNow <= 0) return 1;
   const target = recoveryTarget(perDayNow, profile.perDay);
-  const eq = { co: Math.max(0, 1 - perDayNow / profile.perDay) };
-  for (const key of Object.keys(COMPARTMENTS)) {
+  const eq = {};
+  for (const key of LUNG_PARTS) {
     const { tau, hit } = COMPARTMENTS[key];
     eq[key] = (target / tau) / (1 / tau + perDayNow * hit);
   }
@@ -106,6 +107,8 @@ export function money(profile, cigs, at) {
   const smoked = cigs.filter((t) => t >= profile.start && t <= at).length;
   return {
     perCig,
+    expected,
+    smoked,
     perDay: perCig * profile.perDay,
     saved: Math.max(0, expected - smoked) * perCig,
     spentSince: smoked * perCig,

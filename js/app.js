@@ -1,6 +1,6 @@
 import { Lungs } from './lungs.js';
 import { simulate, money, ceilingAt, visual, packRemaining, dailyCounts, DAY } from './model.js';
-import { SOURCES, MILESTONES, COMPARTMENT_INFO, FIRST_DAYS, TRIGGERS, MOVES } from './content.js';
+import { SOURCES, MILESTONES, COMPARTMENT_INFO, CO_INFO, FIRST_DAYS, TRIGGERS, MOVES } from './content.js';
 import { load, save, freshState, DEFAULT_PROFILE, askPersistence, exportFile, parseImport } from './store.js';
 
 const TEL = '080011100';
@@ -17,6 +17,8 @@ const euro = new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR'
 const euro0 = new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const eur = (v) => euro.format(v);
 const eur0 = (v) => euro0.format(v);
+// Prix d'une clope sans arrondi (0,625 €), pour que le calcul se vérifie à la main.
+const eurExact = (v) => new Intl.NumberFormat('fr-BE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(v);
 const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -44,9 +46,19 @@ const source = (id) => `<a class="src" href="${SOURCES[id].url}" target="_blank"
 // --- Lecture de l'état ---
 const cigTimes = () => S.cigs.map((c) => c.t);
 const remaining = () => packRemaining(S.profile, cigTimes());
-const inPackPhase = () => remaining() > 0;
+const inPackPhase = () => !S.profile.quitAt && remaining() > 0;
+// Réduction : une limite par jour jusqu'à la date d'arrêt, puis zéro.
+const reducing = () => Boolean(S.profile.quitAt) && Date.now() < S.profile.quitAt;
+const todayCount = () => dailyCounts(cigTimes(), Date.now(), 1)[0].count;
 const lastSmoke = () => { const t = cigTimes(); return t.length ? Math.max(...t) : S.profile.start; };
 const quitDay = () => Math.floor((Date.now() - lastSmoke()) / DAY);
+
+const startOfDay = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+const daysUntil = (t) => Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY);
+const inDays = (n) => (n === 1 ? 'demain' : `dans ${n} jours`);
+const isoDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const dateLong = (t) => new Date(t).toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+const dec1 = (v) => v.toFixed(1).replace('.', ',');
 
 function persist() {
   if (!save(S)) toast('Impossible d\'enregistrer sur ce téléphone. Fais une sauvegarde depuis Aide.');
@@ -118,7 +130,7 @@ function overlayHtml() {
   return `
     <button class="readout" data-act="details" aria-label="Voir le détail de la récupération">
       <div class="readout-value num"><span data-live="score">0</span><small>%</small></div>
-      <span class="readout-label">récupéré, estimation</span>
+      <span class="readout-label">poumons récupérés, estimation</span>
     </button>
     <button class="pill" data-act="future">Et si je tiens ?</button>`;
 }
@@ -126,7 +138,7 @@ function overlayHtml() {
 function homeHtml() {
   const left = remaining();
   const total = Math.max(S.profile.packStart, left);
-  const packRow = inPackPhase()
+  const packRow = reducing() ? reductionRow() : inPackPhase()
     ? `<div class="pack">
          <div class="pack-label"><strong>${left === 1 ? 'La dernière' : `${left} clopes`}</strong><br>${left === 1 ? 'du dernier paquet' : 'avant ton Jour 0'}</div>
          <div class="sticks" aria-hidden="true">${Array.from({ length: total }, (_, i) => `<i class="stick${i >= left ? ' gone' : ''}"></i>`).join('')}</div>
@@ -137,12 +149,24 @@ function homeHtml() {
       <div class="fact"><small>Sans fumer depuis</small><b class="num" data-live="since">0 s</b></div>
       <div class="fact"><small>Argent gardé</small><b class="num" data-live="saved">0 €</b></div>
     </div>
+    <button class="co-row" data-act="details"><i class="co-fill" data-co-fill></i><span>Monoxyde de carbone éliminé</span><b class="num" data-live="co">0 %</b></button>
     <button class="next" data-act="tab" data-x="parcours" data-live="next"></button>
     ${packRow}
     <div class="actions">
       <button class="btn btn-main" data-act="sos">J'ai envie de fumer</button>
       <button class="btn btn-soft" data-act="smoke">J'en fume une</button>
     </div>
+  </div>`;
+}
+
+function reductionRow() {
+  const { limit, quitAt } = S.profile;
+  const today = todayCount();
+  const free = Math.max(0, limit - today);
+  const count = today > limit ? `<strong>${today}</strong> aujourd'hui, limite ${limit}` : `<strong>${today} sur ${limit}</strong> aujourd'hui`;
+  return `<div class="pack">
+    <div class="pack-label">${count}<br>Jour 0 ${inDays(daysUntil(quitAt))}</div>
+    <div class="sticks" aria-hidden="true">${Array.from({ length: limit }, (_, i) => `<i class="stick${i >= free ? ' gone' : ''}"></i>`).join('')}</div>
   </div>`;
 }
 
@@ -154,20 +178,27 @@ function recentRate() {
   return count / Math.max(1, (now - since) / DAY);
 }
 
-function openDetails() {
-  const sim = currentSim();
-  const rate = recentRate();
-  openSheet(`
-    <h2 class="title">Ce qui se passe dans tes poumons</h2>
-    <p>Une estimation calée sur les délais publiés. Ce n'est pas une mesure de tes poumons : seul un médecin peut mesurer ton souffle.</p>
-    ${rate > 0 ? `<div class="warn">À ton rythme des 7 derniers jours (${rate.toFixed(1).replace('.', ',')} par jour), la récupération plafonne vers ${Math.round(ceilingAt(S.profile, rate) * 100)} %. À zéro, il n'y a plus de plafond.</div>` : ''}
-    <div style="margin-top:8px">${COMPARTMENT_INFO.map((c) => `
+function compHtml(c, sim) {
+  return `
       <div class="comp">
         <div class="comp-head"><h3>${c.name}</h3><b class="num">${Math.round(sim[c.key] * 100)} %</b></div>
         <div class="bar"><i style="width:${(sim[c.key] * 100).toFixed(1)}%"></i></div>
         <p>${c.now} ${c.image}</p>
         ${source(c.source)}${c.source2 ? `<br>${source(c.source2)}` : ''}
-      </div>`).join('')}</div>
+      </div>`;
+}
+
+function openDetails() {
+  const sim = currentSim();
+  const rate = recentRate();
+  openSheet(`
+    <h2 class="title">Ce qui se passe dans tes poumons</h2>
+    <p>Le grand pourcentage (${Math.round(sim.score * 100)} %) est la moyenne de ces trois parties, à poids égal. C'est une estimation calée sur les délais publiés, pas une mesure : seul un médecin peut mesurer ton souffle.</p>
+    ${rate > 0 ? `<div class="warn">À ton rythme des 7 derniers jours (${rate.toFixed(1).replace('.', ',')} par jour), la récupération plafonne vers ${Math.round(ceilingAt(S.profile, rate) * 100)} %. À zéro, il n'y a plus de plafond.</div>` : ''}
+    <div style="margin-top:8px">${COMPARTMENT_INFO.map((c) => compHtml(c, sim)).join('')}</div>
+    <h2 class="section-title" style="margin-top:18px">À part : dans ton sang</h2>
+    <p>Le monoxyde de carbone part vite et ne dit rien de la guérison des poumons. Il n'est donc pas compté dans le pourcentage.</p>
+    <div>${compHtml(CO_INFO, sim)}</div>
     <div class="comp"><p>L'image reste un symbole. Dans la réalité, une partie des dépôts ne part jamais complètement. Ce qui récupère vraiment, ce sont les cils, l'inflammation, le souffle et le risque.</p></div>
   `);
 }
@@ -276,11 +307,12 @@ const ordinal = (n) => (n === 1 ? '1re' : `${n}e`);
 
 // --- Cigarette ---
 function openSmokeSheet() {
-  const left = remaining();
+  const last = inPackPhase() && remaining() === 1;
   const holding = ui.mode === 'sos';
+  const today = reducing() ? ` Aujourd'hui : ${todayCount()} sur ${S.profile.limit}.` : '';
   openSheet(`
-    <h2 class="title">${left === 1 ? 'La dernière ?' : 'Tu vas en fumer une ?'}</h2>
-    <p>${holding ? 'Tu as déjà commencé à tenir, et chaque minute compte.' : 'Attendre 5 minutes ne t\'engage à rien.'} Si tu la fumes quand même, note-la : l'appli compte juste, sans te juger.</p>
+    <h2 class="title">${last ? 'La dernière ?' : 'Tu vas en fumer une ?'}</h2>
+    <p>${holding ? 'Tu as déjà commencé à tenir, et chaque minute compte.' : 'Attendre 5 minutes ne t\'engage à rien.'}${today} Si tu la fumes quand même, note-la : l'appli compte juste, sans te juger.</p>
     <div class="actions">
       <button class="btn btn-main" data-act="${holding ? 'close' : 'sos'}">${holding ? 'Je continue à tenir' : 'Tenir 5 minutes d\'abord'}</button>
       ${holdButton('confirm-smoke', 'Maintiens pour la noter')}
@@ -291,7 +323,8 @@ const holdButton = (act, label, cls = 'btn-soft') => `<button class="btn ${cls} 
 
 function addCigarette() {
   const before = remaining();
-  const wasFree = before === 0;
+  const inReduction = reducing();
+  const wasFree = !inReduction && !inPackPhase();
   const entry = { t: Date.now(), trigger: null, outOfPack: wasFree };
   S.cigs.push(entry);
   persist();
@@ -313,10 +346,17 @@ function addCigarette() {
   });
   const onPick = (id) => { entry.trigger = id; persist(); };
   // La feuille attend que la fumée ait traversé les poumons
-  if (!wasFree && before === 1) {
+  if (inReduction) {
+    const today = todayCount();
+    const { limit } = S.profile;
+    const text = today < limit ? 'D\'où venait celle-là ?'
+      : today === limit ? 'C\'était la dernière d\'aujourd\'hui. D\'où venait celle-là ?'
+      : 'Au-dessus de ta limite. Ça arrive : demain, le compte repart de zéro. D\'où venait celle-là ?';
+    followUp = setTimeout(() => openTriggerSheet(`${today} sur ${limit} aujourd'hui`, text, onPick), 1700);
+  } else if (!wasFree && before === 1) {
     followUp = setTimeout(() => openSheet(`
       <h2 class="title">C'était la dernière.</h2>
-      <p>Ton compteur part de maintenant. Dans 12 heures, le monoxyde de carbone aura quitté ton sang.</p>
+      <p>Ton compteur part de maintenant. Dans 12 heures, ton taux de monoxyde de carbone sera redevenu normal.</p>
       <p>Là, tout de suite : jette le paquet, le briquet et le cendrier. Chaque geste rend la prochaine envie plus simple à passer.</p>
       <div class="actions"><button class="btn btn-main" data-act="close">C'est fait</button></div>`), 1700);
   } else if (wasFree) {
@@ -350,7 +390,7 @@ function moneyHtml() {
   return `
     <h1 class="title">Ton argent</h1>
     <div class="big-money num" data-live="saved-big">0 €</div>
-    <p class="lede">gardés depuis le départ, par rapport à ${S.profile.perDay} clopes par jour.</p>
+    <p class="lede">gardés depuis ${clock(S.profile.start)}, quand tu as lancé l'appli. À ${S.profile.perDay} par jour, tu en aurais fumé ${dec1(m.expected)} depuis. Tu en as noté ${m.smoked}, soit ${dec1(m.notSmoked)} pas fumées, à ${eurExact(m.perCig)} pièce.</p>
 
     <section>
       <div class="card">
@@ -403,7 +443,18 @@ function journeyHtml() {
   const left = remaining();
   const day = quitDay();
   let header;
-  if (left > 0) {
+  if (reducing()) {
+    const { quitAt, limit } = S.profile;
+    header = `<h1 class="title">Jour 0 : ${dateLong(quitAt)}</h1>
+      <p class="lede">${inDays(daysUntil(quitAt)).replace(/^./, (c) => c.toUpperCase())}. D'ici là, ${limit} par jour au maximum.</p>
+      <section><div class="card"><h3>Pour que la réduction mène à l'arrêt</h3>
+        <p>Prends des substituts pendant la réduction : une gomme ou une pastille quand une envie arrive en dehors de ta limite. C'est ce qui fait marcher la réduction dans les études. En vente libre, demande au pharmacien.</p>
+        <p style="margin-top:10px">Si tu peux, passe à 2 par jour la dernière semaine : le dernier pas sera plus petit. Un seul paquet à la fois. La veille du Jour 0, jette le paquet, le briquet et le cendrier.</p>
+        ${source('cochraneReduction')}
+        <button class="btn btn-soft" data-act="plan">Changer la date ou la limite</button>
+        ${holdButton('quit-now', 'Maintiens pour arrêter dès maintenant')}
+      </div></section>`;
+  } else if (inPackPhase()) {
     header = `<h1 class="title">${left === 1 ? 'Plus qu\'une clope' : `Plus que ${left} clopes`} avant ton Jour 0</h1>
       <p class="lede">Le dernier paquet est aussi une préparation.</p>
       <section><div class="card"><h3>À faire avant la dernière</h3>
@@ -433,6 +484,7 @@ function journeyHtml() {
       <h2 class="section-title">Tes clopes, jour par jour</h2>
       <div class="chart" role="img" aria-label="Cigarettes par jour sur 14 jours, ton habitude étant de ${S.profile.perDay}">
         <div class="base" style="bottom:${(S.profile.perDay / maxV) * 84}%"><span>avant : ${S.profile.perDay}</span></div>
+        ${reducing() ? `<div class="base limit" style="bottom:${(S.profile.limit / maxV) * 84}%"><span>limite : ${S.profile.limit}</span></div>` : ''}
         ${days.map((d) => `<div class="day ${d.count ? '' : 'zero'}"><i style="height:${(d.count / maxV) * 84}%"></i>${d.count ? `<em class="num" style="bottom:calc(${(d.count / maxV) * 84}% + 1px)">${d.count}</em>` : ''}</div>`).join('')}
       </div>
       <div class="chart-axis"><span>il y a 13 jours</span><span>aujourd'hui</span></div>
@@ -441,7 +493,7 @@ function journeyHtml() {
 
     <section>
       <h2 class="section-title">Tes paliers</h2>
-      <p class="lede" style="margin:-4px 0 14px;font-size:14px">Un écart recule ces paliers d'environ un jour, il ne les efface pas. ${left > 0 ? 'Ils démarrent vraiment après ta dernière clope.' : ''}</p>
+      <p class="lede" style="margin:-4px 0 14px;font-size:14px">Un écart recule ces paliers d'environ un jour, il ne les efface pas. ${inPackPhase() || reducing() ? 'Ils démarrent vraiment après ta dernière clope.' : ''}</p>
       <ol class="timeline">
         ${MILESTONES.map((m) => {
           const done = sim.cleanDays >= m.at;
@@ -468,11 +520,11 @@ function helpHtml() {
     <h1 class="title">Aide</h1>
     <section style="margin-top:16px">
       ${installed ? '' : `<div class="card"><h3>Pas encore sur ton écran d'accueil</h3><p>Dans Safari : Partager, puis « Sur l'écran d'accueil ». Sans ça, iOS peut effacer tes données après quelques jours sans visite.</p></div>`}
-      <div class="card">
+      ${reducing() ? '' : `<div class="card">
         <h3>Tu veux racheter un paquet</h3>
         <p>Le moment le plus dangereux. Ouvre ça avant de sortir.</p>
         <button class="btn btn-main" data-act="gate">J'y pense, là</button>
-      </div>
+      </div>`}
       <div class="card">
         <h3>Tabacstop : 0800 111 00</h3>
         <p>Gratuit. 8 séances de coaching par téléphone avec un tabacologue. Lundi au vendredi, 15 h à 19 h.</p>
@@ -510,6 +562,9 @@ function helpHtml() {
       <div class="card">
         <p>Diminuer fait bouger tes poumons ici, mais peu : chez les hommes, même 1 clope par jour garde environ la moitié de l'excès de risque cardiaque de 20 par jour. L'appli récompense chaque baisse, et seul zéro enlève le plafond.</p>
         ${source('hackshaw')}
+        <p style="margin-top:10px">Réduire pour arrêter à une date fixe marche à peu près aussi bien qu'arrêter net, surtout avec des substituts pendant la réduction. Dans le plus grand essai, l'arrêt net gardait un léger avantage.</p>
+        ${source('cochraneReduction')}<br>${source('lindson16')}
+        <button class="btn btn-soft" data-act="plan">${S.profile.quitAt ? 'Changer ma date ou ma limite' : 'Réduire, puis arrêter à une date'}</button>
       </div>
     </section>
 
@@ -608,10 +663,26 @@ function profileFields(p, withLeft) {
     ${withLeft ? `<label class="field"><span>Clopes qu'il te reste, là, maintenant</span><input name="left" type="number" inputmode="numeric" min="0" max="60" value="${withLeft.value}" required></label>` : ''}`;
 }
 
+function openPlan(first) {
+  const { quitAt, limit } = S.profile;
+  openSheet(`
+    <h2 class="title">Réduire, puis arrêter</h2>
+    <p>Réduire jusqu'à une date fixe, puis arrêter, marche à peu près aussi bien qu'arrêter net. La date fait partie de la méthode testée : réduire sans date n'a pas fait ses preuves.</p>
+    ${source('cochraneReduction')}
+    <form data-form="plan">
+      <label class="field"><span>Ton Jour 0, sans clope</span><input name="quit" type="date" min="${isoDay(Date.now() + DAY)}" value="${isoDay(quitAt || Date.now() + 14 * DAY)}" required></label>
+      <label class="field"><span>Limite par jour d'ici là</span><input name="limit" type="number" inputmode="numeric" min="1" max="20" value="${limit || 4}" required></label>
+      <div class="actions">
+        <button class="btn btn-main" type="submit">Enregistrer</button>
+        ${first ? '<button class="btn btn-text" type="button" data-act="plan-skip">Je garde l\'arrêt net</button>' : ''}
+      </div>
+    </form>`);
+}
+
 function openSettings() {
   openSheet(`
     <h2 class="title">Tes chiffres</h2>
-    <form data-form="settings">${profileFields(S.profile, { value: remaining() })}
+    <form data-form="settings">${profileFields(S.profile, S.profile.quitAt ? null : { value: remaining() })}
       <div class="actions"><button class="btn btn-main" type="submit">Enregistrer</button></div>
     </form>`);
 }
@@ -673,6 +744,8 @@ function tick() {
   setLive('saved', eur(m.saved));
   setLive('saved-big', eur(m.saved));
   setLive('score', String(Math.round(lastSim.score * 100)));
+  setLive('co', `${Math.round(lastSim.co * 100)} %`);
+  document.querySelectorAll('[data-co-fill]').forEach((el) => { el.style.width = `${(lastSim.co * 100).toFixed(1)}%`; });
   const next = nextMilestone(lastSim);
   document.querySelectorAll('[data-live="next"]').forEach((el) => {
     const html = next
@@ -750,6 +823,8 @@ const ACTIONS = {
   'edit-why': openWhy,
   'edit-plans': openPlans,
   settings: openSettings,
+  plan() { openPlan(false); },
+  'plan-skip'() { S.profile.planAsked = true; persist(); closeSheet(); },
   export() { exportFile(S); },
   'del-event'(x, el) {
     const t = Number(el.dataset.t);
@@ -770,6 +845,14 @@ const HOLD_ACTIONS = {
     ui.tab = 'poumons';
     render();
     openSheet(`<h2 class="title">C'est fini, le paquet.</h2><p>Tu viens de t'épargner ce qu'il restait dedans. Jette aussi le briquet. Le compteur tourne depuis ta dernière clope.</p><div class="actions"><button class="btn btn-main" data-act="close">C'est fait</button></div>`);
+  },
+  'quit-now'() {
+    S.profile.quitAt = Date.now();
+    persist();
+    refreshLungs();
+    ui.tab = 'poumons';
+    render();
+    openSheet(`<h2 class="title">C'est maintenant.</h2><p>Jette le paquet, le briquet et le cendrier. Le compteur tourne depuis ta dernière clope.</p><div class="actions"><button class="btn btn-main" data-act="close">C'est fait</button></div>`);
   },
   reset() {
     S = freshState();
@@ -885,6 +968,17 @@ document.addEventListener('submit', (e) => {
     refreshLungs({ instant: true });
     render();
     if (!isStandalone()) openInstall();
+  } else if (kind === 'plan') {
+    const [y, mo, d] = String(data.get('quit')).split('-').map(Number);
+    const quitAt = new Date(y, mo - 1, d).getTime();
+    if (!(quitAt > Date.now())) { toast('Choisis une date à venir.'); return; }
+    S.profile.quitAt = quitAt;
+    S.profile.limit = Math.max(1, Math.round(Number(data.get('limit'))));
+    S.profile.planAsked = true;
+    persist();
+    closeSheet();
+    refreshLungs();
+    render();
   } else if (kind === 'goal') {
     S.goal = { name: String(data.get('name')).trim(), price: Number(data.get('price')) };
     persist();
@@ -903,10 +997,11 @@ document.addEventListener('submit', (e) => {
     render();
   } else if (kind === 'settings') {
     S.profile = readProfile(data, S.profile);
-    const used = cigTimes().filter((t) => t >= S.profile.start).length;
-    const left = Number(data.get('left'));
-    S.profile.packStart = used + left;
-    delete S.profile.packDiscardedAt;
+    if (data.has('left')) {
+      const used = cigTimes().filter((t) => t >= S.profile.start).length;
+      S.profile.packStart = used + Number(data.get('left'));
+      delete S.profile.packDiscardedAt;
+    }
     persist();
     closeSheet();
     refreshLungs();
@@ -940,8 +1035,14 @@ async function boot() {
   setInterval(breathWord, 200);
   setInterval(() => refreshLungs(), 15000);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refreshLungs(); tick(); }
+    if (document.hidden) return;
+    refreshLungs();
+    // Au retour, le jour a pu changer : le compte du jour et le compte à rebours suivent.
+    if (S.profile && ui.tab === 'poumons' && ui.mode === 'home' && !sheetEl) render();
+    tick();
   });
+  // Une seule fois : proposer le plan de réduction à ceux qui ont commencé par l'arrêt net.
+  if (S.profile && !S.profile.quitAt && !S.profile.planAsked) openPlan(true);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 

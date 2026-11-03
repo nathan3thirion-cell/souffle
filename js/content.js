@@ -77,6 +77,16 @@ export const SOURCES = {
     url: 'https://www.cochrane.org/CD009329/TOBACCO_which-medicines-work-best-help-people-stop-smoking',
     says: 'Pour 10 personnes qui arrêtent avec un patch seul, environ 15 avec la varénicline. Patch + forme rapide (gomme, pastille) fait à peu près aussi bien que la varénicline.',
   },
+  cochraneReduction: {
+    label: 'Lindson et coll., Cochrane (2019). 51 études, plus de 22 000 personnes',
+    url: 'https://www.cochrane.org/about-us/news/featured-review-can-people-stop-smoking-cutting-down-amount-they-smoke-first',
+    says: 'Réduire jusqu\'à une date d\'arrêt et arrêter net donnent des taux d\'arrêt comparables à long terme (certitude modérée). La réduction marche mieux avec des formes rapides de substituts (gomme, pastille) ou la varénicline.',
+  },
+  lindson16: {
+    label: 'Lindson-Hawley et coll., Annals of Internal Medicine (2016). 697 fumeurs',
+    url: 'https://eprints.whiterose.ac.uk/101671/',
+    says: '2 semaines de réduction puis arrêt, contre arrêt net, avec patchs et suivi dans les deux groupes. À 6 mois : 15,5 % sans fumer après réduction, 22 % après arrêt net.',
+  },
   co: {
     label: 'WikEM : carboxyhémoglobine',
     url: 'https://www.wikem.org/wiki/Carboxyhemoglobin',
@@ -92,7 +102,7 @@ export const SOURCES = {
 // `at` : jours gagnés nécessaires. Un écart recule ce compteur, il ne l'efface pas.
 export const MILESTONES = [
   { at: 20 / 1440, label: '20 minutes', title: 'Le cœur redescend', text: 'Le rythme cardiaque et la tension baissent.', source: 'who' },
-  { at: 0.5, label: '12 heures', title: 'Le monoxyde de carbone est parti', text: 'Son taux dans le sang revient à la normale. Ton sang retransporte l\'oxygène.', source: 'who' },
+  { at: 0.5, label: '12 heures', title: 'Le monoxyde de carbone redevient normal', text: 'Son taux dans le sang revient à la normale. Ton sang retransporte l\'oxygène.', source: 'who' },
   { at: 8, label: '8 jours', title: 'Le cap le plus dur est passé', text: 'La plupart des rechutes arrivent avant ce jour. Tu viens de le franchir.', source: 'hughes' },
   { at: 15, label: '15 jours', title: 'Les cils se remettent au travail', text: 'Le nettoyage du mucus commence à s\'améliorer de façon mesurable.', source: 'ramos' },
   { at: 30, label: '1 mois', title: 'Le nettoyage repart', text: 'Environ 6 ex-fumeurs sur 10 ont un nettoyage du mucus nettement meilleur à ce stade.', source: 'utiyama' },
@@ -106,12 +116,14 @@ export const MILESTONES = [
   { at: 5475, label: '15 ans', title: 'Le cœur d\'un non-fumeur', text: 'Le risque de maladie coronarienne est celui d\'un non-fumeur.', source: 'who' },
 ];
 
+// Compté à part du pourcentage des poumons.
+export const CO_INFO = {
+  key: 'co', name: 'Monoxyde de carbone éliminé', short: 'CO',
+  now: 'La fumée le met à la place de l\'oxygène sur tes globules rouges. La moitié part toutes les 5 h environ. Son taux redevient normal vers 12 h, et ce calcul continue de monter jusqu\'à 100 % en un jour ou deux. Il revient après chaque clope.',
+  source: 'who', source2: 'co', image: 'Sur l\'image : le rose qui remonte dans le tissu.',
+};
+
 export const COMPARTMENT_INFO = [
-  {
-    key: 'co', name: 'Oxygène', short: 'CO',
-    now: 'Le monoxyde de carbone de la fumée prend la place de l\'oxygène sur tes globules rouges. Il part avec une demi-vie d\'environ 5 h.',
-    source: 'who', image: 'Sur l\'image : le rose qui remonte dans le tissu.',
-  },
   {
     key: 'souffle', name: 'Souffle', short: 'Souffle',
     now: 'Circulation et fonction pulmonaire remontent entre 2 et 12 semaines.',
